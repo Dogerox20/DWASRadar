@@ -42,11 +42,14 @@ setInterval(() => {
 let alertsLayer = null;
 let firstFitDone = false;
 
-// Track all polygon alerts we’ve already seen (for zooming)
+// Track all polygon alerts we've seen (for zoom + panel auto-open)
 let knownPolygonIds = new Set();
 
-// Track warning IDs for audio only
+// Track warning IDs separately for audio
 let knownWarningIds = new Set();
+
+// For controlling auto-open of the panel
+let firstAutoPanelShown = false;
 
 const alertPanel = document.getElementById("alert-panel");
 const closeBtn = document.getElementById("alert-close-btn");
@@ -94,8 +97,9 @@ function onEachFeature(feature, layer) {
   const tooltipText = `${p.event || "Alert"}\n${p.severity || ""}`;
   layer.bindTooltip(tooltipText.replace(/\n/g, "<br>"));
 
+  // USER click => always open panel
   layer.on("click", () => {
-    updateAlertCard(p);
+    updateAlertCard(p, true);
   });
 }
 
@@ -142,7 +146,7 @@ function pickBestAlert(features) {
   return best;
 }
 
-// --- NEW: detect new polygon alerts for zooming ---
+// --- detect new polygon alerts (for zoom + auto-open) ---
 
 function detectNewPolygons(mapFeatures) {
   const currentIds = new Set();
@@ -164,7 +168,7 @@ function detectNewPolygons(mapFeatures) {
   return hasNewPolygon;
 }
 
-// --- existing: detect new warnings for audio only ---
+// --- detect new warnings (for audio only) ---
 
 function detectNewWarnings(allFeatures) {
   const currentWarningIds = new Set();
@@ -201,7 +205,6 @@ function detectNewWarnings(allFeatures) {
 
 async function loadAlerts() {
   try {
-    // Flask backend
     const resp = await fetch("/alerts");
     const data = await resp.json();
 
@@ -214,10 +217,10 @@ async function loadAlerts() {
     headlineAlerts = mapFeatures.map((f) => f.properties || {});
     updateHeadlineMetric(mapFeatures.length);
 
-    // detect new warnings for audio
+    // audio for new warnings
     detectNewWarnings(allFeatures);
 
-    // detect if any NEW polygon alert appeared (for zooming)
+    // auto-zoom / panel only when new polygons appear
     const hasNewPolygon = detectNewPolygons(mapFeatures);
 
     if (alertsLayer) {
@@ -245,13 +248,17 @@ async function loadAlerts() {
       console.warn("Fit bounds error", e);
     }
 
-    // choose best alert for left panel
+    // choose best alert for the left panel
     const bestFeature = pickBestAlert(mapFeatures) || null;
 
+    const shouldAutoShowPanel = !firstAutoPanelShown || hasNewPolygon;
+
     if (bestFeature) {
-      updateAlertCard(bestFeature.properties || {});
+      // auto-open only on first display or on new alert
+      updateAlertCard(bestFeature.properties || {}, shouldAutoShowPanel);
+      firstAutoPanelShown = true;
     } else {
-      updateAlertCard(null);
+      updateAlertCard(null, true); // will clear + hide
     }
 
     // start / update headline cycling
@@ -317,13 +324,28 @@ function setText(id, text) {
   el.textContent = text || "--";
 }
 
-function updateAlertCard(props) {
-  if (alertPanel && props) {
-    alertPanel.classList.remove("panel-hidden");
-    if (mainLayout) {
-      mainLayout.classList.remove("layout-no-panel");
+/**
+ * updateAlertCard(props, showPanel)
+ * - props: alert properties (or null)
+ * - showPanel: if true, force panel to open/close;
+ *              if false, just update text, keep current visibility.
+ */
+function updateAlertCard(props, showPanel = false) {
+  if (alertPanel) {
+    if (!props) {
+      // no alerts => hide panel
+      alertPanel.classList.add("panel-hidden");
+      if (mainLayout) {
+        mainLayout.classList.add("layout-no-panel");
+      }
+    } else if (showPanel) {
+      // only auto-open when explicitly requested
+      alertPanel.classList.remove("panel-hidden");
+      if (mainLayout) {
+        mainLayout.classList.remove("layout-no-panel");
+      }
+      setTimeout(() => map.invalidateSize(), 300);
     }
-    setTimeout(() => map.invalidateSize(), 300);
   }
 
   if (!props) {
