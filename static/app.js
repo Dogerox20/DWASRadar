@@ -161,7 +161,7 @@ function pickBestAlert(features) {
 
 function detectNewPolygons(mapFeatures) {
   const currentIds = new Set();
-  let hasNewPolygon = false;
+  const newIds = [];
 
   for (const f of mapFeatures) {
     if (!f) continue;
@@ -170,12 +170,15 @@ function detectNewPolygons(mapFeatures) {
 
     currentIds.add(id);
     if (!knownPolygonIds.has(id)) {
-      hasNewPolygon = true;
+      newIds.push(id);
     }
   }
 
   knownPolygonIds = currentIds;
-  return hasNewPolygon;
+  return {
+    hasNewPolygon: newIds.length > 0,
+    newIds,
+  };
 }
 
 // --- detect new warnings (for audio only) ---
@@ -231,7 +234,7 @@ async function loadAlerts() {
     detectNewWarnings(allFeatures);
 
     // auto-zoom / panel only when new polygons appear
-    const hasNewPolygon = detectNewPolygons(mapFeatures);
+    const { hasNewPolygon, newIds } = detectNewPolygons(mapFeatures);
 
     if (alertsLayer) {
       map.removeLayer(alertsLayer);
@@ -245,18 +248,41 @@ async function loadAlerts() {
       }
     ).addTo(map);
 
-    // Fit on first load OR whenever a new polygon alert appears
+    // ----- ZOOM LOGIC -----
     try {
-      if ((!firstFitDone || hasNewPolygon) && mapFeatures.length > 0) {
-        const bounds = alertsLayer.getBounds();
-        if (bounds && bounds.isValid()) {
-          map.fitBounds(bounds.pad(0.1));
-          firstFitDone = true;
+      if (mapFeatures.length > 0) {
+        // Decide what geometry to zoom to
+        let featureToZoom = null;
+
+        if (!firstFitDone) {
+          // First time: zoom to ALL polygons
+          // (alertsLayer bounds)
+          const bounds = alertsLayer.getBounds();
+          if (bounds && bounds.isValid()) {
+            map.fitBounds(bounds.pad(0.1));
+            firstFitDone = true;
+          }
+        } else if (hasNewPolygon) {
+          // New polygon(s) appeared: zoom to the strongest one among them
+          const newFeatures = mapFeatures.filter((f) =>
+            newIds.includes(getFeatureId(f))
+          );
+          featureToZoom = pickBestAlert(newFeatures) || pickBestAlert(mapFeatures);
+
+          if (featureToZoom) {
+            const tempLayer = L.geoJSON(featureToZoom);
+            const b = tempLayer.getBounds();
+            if (b && b.isValid()) {
+              map.fitBounds(b.pad(0.15));
+            }
+          }
         }
       }
     } catch (e) {
       console.warn("Fit bounds error", e);
     }
+
+    // ----- INFO PANEL LOGIC -----
 
     // Try to keep showing the user's selected alert if it still exists
     let selectedFeature = null;
