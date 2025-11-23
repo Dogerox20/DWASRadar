@@ -42,7 +42,7 @@ setInterval(() => {
 let alertsLayer = null;
 let firstFitDone = false;
 
-// Track all polygon alerts we've seen (for zoom + panel auto-open)
+// Track all polygon alerts we've seen (for zoom + auto-open)
 let knownPolygonIds = new Set();
 
 // Track warning IDs separately for audio
@@ -50,6 +50,9 @@ let knownWarningIds = new Set();
 
 // For controlling auto-open of the panel
 let firstAutoPanelShown = false;
+
+// Track which alert the USER has selected
+let selectedAlertId = null;
 
 const alertPanel = document.getElementById("alert-panel");
 const closeBtn = document.getElementById("alert-close-btn");
@@ -70,6 +73,13 @@ if (closeBtn && alertPanel) {
     }
     setTimeout(() => map.invalidateSize(), 300);
   });
+}
+
+// Helper to derive a stable ID from a feature
+function getFeatureId(feature) {
+  if (!feature) return null;
+  const p = feature.properties || {};
+  return feature.id || p.id || p.ugc || null;
 }
 
 function severityColor(sev) {
@@ -97,8 +107,9 @@ function onEachFeature(feature, layer) {
   const tooltipText = `${p.event || "Alert"}\n${p.severity || ""}`;
   layer.bindTooltip(tooltipText.replace(/\n/g, "<br>"));
 
-  // USER click => always open panel
+  // USER click => lock in selection and open panel
   layer.on("click", () => {
+    selectedAlertId = getFeatureId(feature);
     updateAlertCard(p, true);
   });
 }
@@ -154,8 +165,7 @@ function detectNewPolygons(mapFeatures) {
 
   for (const f of mapFeatures) {
     if (!f) continue;
-    const props = f.properties || {};
-    const id = f.id || props.id || props.ugc || null;
+    const id = getFeatureId(f);
     if (!id) continue;
 
     currentIds.add(id);
@@ -248,17 +258,33 @@ async function loadAlerts() {
       console.warn("Fit bounds error", e);
     }
 
-    // choose best alert for the left panel
+    // Try to keep showing the user's selected alert if it still exists
+    let selectedFeature = null;
+    if (selectedAlertId) {
+      selectedFeature =
+        mapFeatures.find((f) => getFeatureId(f) === selectedAlertId) || null;
+    }
+
+    // choose best alert for fallback
     const bestFeature = pickBestAlert(mapFeatures) || null;
 
-    const shouldAutoShowPanel = !firstAutoPanelShown || hasNewPolygon;
+    // Should we auto-open the panel (only if nothing manually selected)?
+    const shouldAutoShowPanel =
+      !firstAutoPanelShown || (hasNewPolygon && !selectedFeature);
 
-    if (bestFeature) {
-      // auto-open only on first display or on new alert
+    if (mapFeatures.length === 0) {
+      // no alerts at all
+      selectedAlertId = null;
+      firstAutoPanelShown = false;
+      updateAlertCard(null, true);
+    } else if (selectedFeature) {
+      // User has something selected, keep showing that one.
+      updateAlertCard(selectedFeature.properties || {}, false);
+    } else if (bestFeature) {
+      // No selection -> use best alert and (maybe) auto-open panel
+      selectedAlertId = getFeatureId(bestFeature);
       updateAlertCard(bestFeature.properties || {}, shouldAutoShowPanel);
       firstAutoPanelShown = true;
-    } else {
-      updateAlertCard(null, true); // will clear + hide
     }
 
     // start / update headline cycling
