@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Max • Live Weather Dashboard</title>
+  <title>DWAS • Doge's Weather Analysis System</title>
+
+  <!-- Favicon (.png) -->
+  <link
+    rel="icon"
+    type="image/png"
+    href="{{ url_for('static', filename='favicon.png') }}"
+  />
 
   <!-- Leaflet CSS -->
   <link
@@ -12,11 +19,11 @@
     crossorigin=""
   />
 
-  <!-- Our styles -->
+  <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
-  <!-- Top headline bar (ticker) -->
+  <!-- Top headline bar -->
   <div id="headline-bar">
     <div id="headline-text">Loading current alerts from NWS...</div>
     <div id="headline-metric">
@@ -27,12 +34,11 @@
 
   <!-- Main layout -->
   <div id="main-layout">
-    <!-- Left alert card -->
-    <div id="alert-panel">
-      <!-- Close (X) button -->
+    <!-- Left alert info panel -->
+    <div id="alert-panel" class="panel-hidden">
       <button id="alert-close-btn" title="Hide details">&times;</button>
 
-      <div id="alert-type">NO ACTIVE ALERT SELECTED</div>
+      <div id="alert-type">NO ACTIVE ALERTS</div>
       <div id="alert-expiration">Expires: --</div>
 
       <div id="alert-stats-row">
@@ -76,18 +82,19 @@
       </div>
     </div>
 
-    <!-- Right map + radar -->
+    <!-- Right side: radar header + map -->
     <div id="map-panel">
       <div id="radar-header">
         <div id="radar-title">WINTER RADAR</div>
         <div id="radar-time">
-          <span id="radar-clock">--:--:--</span> <span id="radar-tz">LOCAL</span>
+          <span id="radar-clock">--:--:--</span>
+          <span id="radar-tz">LOCAL</span>
         </div>
       </div>
 
       <div id="map"></div>
 
-      <!-- Legend / key -->
+      <!-- Severity legend -->
       <div id="map-legend">
         <div class="legend-title">Alert Severity</div>
         <div class="legend-row">
@@ -109,7 +116,7 @@
     </div>
   </div>
 
-  <!-- Audio element for warning sound -->
+  <!-- Warning sound -->
   <audio id="warn-sound" preload="auto">
     <source src="{{ url_for('static', filename='warn_sound.m4a') }}" type="audio/mp4" />
     Your browser does not support the audio element.
@@ -122,7 +129,7 @@
     crossorigin=""
   ></script>
 
-  <!-- Our JS -->
+  <!-- App JS -->
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
