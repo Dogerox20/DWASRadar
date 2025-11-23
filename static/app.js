@@ -41,6 +41,11 @@ setInterval(() => {
 
 let alertsLayer = null;
 let firstFitDone = false;
+
+// Track all polygon alerts we’ve already seen (for zooming)
+let knownPolygonIds = new Set();
+
+// Track warning IDs for audio only
 let knownWarningIds = new Set();
 
 const alertPanel = document.getElementById("alert-panel");
@@ -137,13 +142,35 @@ function pickBestAlert(features) {
   return best;
 }
 
-// detect new warnings for audio + zoom trigger
+// --- NEW: detect new polygon alerts for zooming ---
 
-function detectNewWarnings(features) {
+function detectNewPolygons(mapFeatures) {
+  const currentIds = new Set();
+  let hasNewPolygon = false;
+
+  for (const f of mapFeatures) {
+    if (!f) continue;
+    const props = f.properties || {};
+    const id = f.id || props.id || props.ugc || null;
+    if (!id) continue;
+
+    currentIds.add(id);
+    if (!knownPolygonIds.has(id)) {
+      hasNewPolygon = true;
+    }
+  }
+
+  knownPolygonIds = currentIds;
+  return hasNewPolygon;
+}
+
+// --- existing: detect new warnings for audio only ---
+
+function detectNewWarnings(allFeatures) {
   const currentWarningIds = new Set();
   let hasNewWarning = false;
 
-  for (const f of features) {
+  for (const f of allFeatures) {
     if (!f || !f.properties) continue;
     const props = f.properties;
     const id = f.id || props.id;
@@ -168,28 +195,30 @@ function detectNewWarnings(features) {
   if (hasNewWarning) {
     playWarnSound();
   }
-
-  return hasNewWarning;
 }
 
 // ============ LOAD ALERTS ============
 
 async function loadAlerts() {
   try {
+    // Flask backend
     const resp = await fetch("/alerts");
     const data = await resp.json();
 
     const allFeatures = data.features || [];
 
-    // map features = only alerts that actually have geometry
+    // only alerts that actually have geometry
     const mapFeatures = allFeatures.filter((f) => f && f.geometry);
 
-    // headline & count use only polygon alerts now
+    // headline + count use polygon alerts
     headlineAlerts = mapFeatures.map((f) => f.properties || {});
     updateHeadlineMetric(mapFeatures.length);
 
-    // warning sound + flag if brand-new warning appeared
-    const hasNewWarning = detectNewWarnings(allFeatures);
+    // detect new warnings for audio
+    detectNewWarnings(allFeatures);
+
+    // detect if any NEW polygon alert appeared (for zooming)
+    const hasNewPolygon = detectNewPolygons(mapFeatures);
 
     if (alertsLayer) {
       map.removeLayer(alertsLayer);
@@ -203,9 +232,9 @@ async function loadAlerts() {
       }
     ).addTo(map);
 
-    // Auto-fit once on first load
+    // Fit on first load OR whenever a new polygon alert appears
     try {
-      if (!firstFitDone && mapFeatures.length > 0) {
+      if ((!firstFitDone || hasNewPolygon) && mapFeatures.length > 0) {
         const bounds = alertsLayer.getBounds();
         if (bounds && bounds.isValid()) {
           map.fitBounds(bounds.pad(0.1));
@@ -213,19 +242,7 @@ async function loadAlerts() {
         }
       }
     } catch (e) {
-      console.warn("Initial fit bounds error", e);
-    }
-
-    // If a brand-new warning appeared, refit to all current polygons
-    try {
-      if (hasNewWarning && mapFeatures.length > 0) {
-        const bounds = alertsLayer.getBounds();
-        if (bounds && bounds.isValid()) {
-          map.fitBounds(bounds.pad(0.1));
-        }
-      }
-    } catch (e) {
-      console.warn("New warning fit bounds error", e);
+      console.warn("Fit bounds error", e);
     }
 
     // choose best alert for left panel
